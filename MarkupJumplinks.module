@@ -1,0 +1,307 @@
+<?php namespace ProcessWire;
+/**
+ * MarkupJumplinks
+ *
+ * Helper for jumplinks
+ *
+ * By Steffen Henschel
+ * 
+ */
+
+class MarkupJumplinks extends WireData implements Module, ConfigurableModule {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => __('MarkupJumplinks'),
+			'version' => '0.0.1',
+			'summary' => __('Collect and store jumplinks data for delayed rendering e.g. to mix into navigations.'),
+			'autoload' => true,
+			'requires' => array('ProcessWire>=3.0.0')
+		);
+	}
+
+	static public function getDefaultConfig() {
+		return array(
+			'api_var' 				=> 'jumplinks',
+			'defaultAnchorString' 	=> '<a href="{_href_}">{_content_}</a>'
+		);
+	}
+
+	public function __construct() {
+
+		// Populate default configuration 
+		// (will be overwritten after constructor with user's own configuration)
+		foreach(self::getDefaultConfig() as $key => $value) {
+			$this->$key = $value;
+		}
+	}
+
+	public function init() {
+
+		wire()->addHookProperty('Page::anchorId', $this, 'hookPageAnchorId'); 			// 1023-page-name
+		wire()->addHookProperty('Page::anchorHref', $this, 'hookPageAnchorHref'); 		// #1023-page-name
+		wire()->addHookProperty('Page::anchorUrlHref', $this, 'hookPageAnchorUrlHref'); // /url/to/page-name/#1023-page-name
+	}
+	
+	public function ready() {
+		
+		if ($this->get('api_var') != '') {
+			$this->wire($this->get('api_var'), $this);
+		}
+	}
+
+
+
+	/**
+	 * hook methods
+	 * 
+	 */
+
+	/**
+	 * hookPageAnchorId / hookPageAnchorHref / hookPageAnchorUrlHref
+	 * 
+	 * @param  HookEvent $event 	hook event
+	 * @return String 				formatted anchor string
+	 */
+	public function hookPageAnchorId($event) {
+
+		$page = $event->object;
+		$event->return = self::makeAnchor($page, $withHash = false, $withUrl = false);
+		return $event->return;
+	}
+
+	public function hookPageAnchorHref($event) {
+
+		$page = $event->object;
+		$event->return = self::makeAnchor($page, $withHash = true, $withUrl = false);
+		return $event->return;
+	}
+
+	public function hookPageAnchorUrlHref($event) {
+
+		$page = $event->object;
+		$event->return = self::makeAnchor($page, $withHash = true, $withUrl = true);
+		return $event->return;
+	}
+
+
+
+	/**
+	 * public module methods
+	 * 
+	 */
+
+	/**
+	 * addAndGetId
+	 *
+	 * directly get anchorId while adding
+	 * 
+	 * @param [type] $page_OR_title [description]
+	 * @param [type] $url           [description]
+	 */
+	public function addAndGetId($page_OR_title, $url = null) {
+
+		$this->add($page_OR_title, $url = null);
+		return $this->getAnchorId($page_OR_title);
+	}
+
+
+
+	/**
+	 * add
+	 *
+	 * add an item to the collection
+	 * 
+	 * @param [type] $page_OR_id  	page or identifier string
+	 * @param [type] $url        	Url to include. Overrides page url.
+	 */
+	public function add($page_OR_title, $url = null) {
+
+		if ($page_OR_title instanceof Page) {
+
+			$newItem = new WireData();
+			$newItem->id = $page_OR_title->id;
+			$newItem->name = $page_OR_title->name;
+			$newItem->url = $url ? $url : $page_OR_title->url;
+			$newItem->title = $page_OR_title->title;
+			$this->set($newItem->id, $newItem);
+			
+		} else if(gettype($page_OR_title) === 'string') {
+
+			// You shall not overwrite default configuration.
+			// 
+			if (in_array($page_OR_title, self::getDefaultConfig())) {
+				trigger_error('Cannot add "'.$page_OR_title.'", reserved configuration key.');
+				return;
+			}
+
+			$newItem = new WireData();
+			$newItem->id = wire('sanitizer')->pageName($page_OR_title);
+			$newItem->url = $url;
+			$newItem->title = $page_OR_title;
+			$this->set($newItem->id, $newItem);
+
+		} else { throw new WireException("Expecting Page or string", 1); }
+	}
+
+
+	/**
+	 * getAnchorId / getAnchorHref / getAnchorUrlHref
+	 * 
+	 * @param  [type] $search [description]
+	 * @return [type]         [description]
+	 */
+	public function getAnchorId($search) {
+		return $this->makeAnchor($this->findItem($search), $withHash = false, $withUrl = false);
+	}
+
+	public function getAnchorHref($search) {
+		return $this->makeAnchor($this->findItem($search), $withHash = true, $withUrl = false);
+	}
+
+	public function getAnchorUrlHref($search) {
+		return $this->makeAnchor($this->findItem($search), $withHash = true, $withUrl = true);
+	}
+
+
+
+
+
+	/**
+	 * getArray
+	 *
+	 * overrides WireData::getArray() to filter out defaultConfiguration
+	 * 
+	 * @return array 	data of all jumplinks
+	 */
+	public function getArray() {
+
+		$objectData = $this->data;
+		foreach (self::getDefaultConfig() as $confKey => $value) {
+			if (isset($objectData[$confKey])) {
+				unset($objectData[$confKey]);
+			}
+		}
+		return $objectData;
+	}
+
+
+
+	/**
+	 * ___renderAnchorTags
+	 * 
+	 * @param  [type] $renderString [description]
+	 * @return [type]               [description]
+	 */
+	public function ___renderAnchorTags($renderString = null) {
+
+		$stringTemplate = $renderString ? $renderString : $this->defaultAnchorString;
+		$output = '';
+
+		foreach ($this->getArray() as $key => $jumplinkItem) {
+			$jumplinkItem->_content_ = $jumplinkItem->title;
+			$jumplinkItem->_href_ = $this->makeAnchor($jumplinkItem);
+			$output .= wirePopulateStringTags($stringTemplate, $jumplinkItem);
+		}
+
+		return $output;
+	}
+
+
+
+	/**
+	 * private functions
+	 * 
+	 */
+
+	/**
+	 * findItem
+	 *
+	 * @param  [type] $search [description]
+	 * @return [type]         [description]
+	 */
+	private function findItem($search) {
+
+		if($search instanceof Page) $search = $search->id;
+
+		foreach ($this->getArray() as $itemId => $item) {
+			
+			if ($search == $itemId) { return $item; }
+			else if ($search == $item->name) { return $item; }
+			else if ($search == $item->title) { return $item; }
+		}
+	}
+
+
+
+	/**
+	 * makeAnchor
+	 *
+	 * compile anchor string
+	 * 
+	 * @param  [type]  $context  [description]
+	 * @param  boolean $withHash [description]
+	 * @param  boolean $withUrl  [description]
+	 * @return [type]            [description]
+	 */
+	private function makeAnchor($context, $withHash = true, $withUrl = true) {
+
+		// to consider?
+		// 
+		// $pattern = $this->anchorPattern;
+		// $pupulatedString = wirePopulateStringTags($pattern, $context);
+
+		if (!$context->id) {
+			trigger_error('Context has no identifier');
+			return;
+		}
+
+		// compile: {url}#{id}-{name}
+
+		$output = '';
+		if ($context->url && $withUrl == true) $output .= $context->url;
+		if ($withHash == true) $output .= '#';
+		if ($context->id) $output .= $context->id;
+		if ($context->name) $output .= '-'.$context->name;
+		return $output;
+	}
+
+
+
+	/**
+	 * module config & install
+	 * 
+	 */
+
+	/**
+	 * Create the modules setting page
+	 *
+	 */
+	
+	static public function getModuleConfigInputfields(array $data) {
+
+		$modules = wire('modules');
+
+		$defaults = self::getDefaultConfig();
+		$data = array_merge($defaults, $data);
+
+		$form = new InputfieldWrapper();
+
+		$field = $modules->get("InputfieldMarkup");
+		$field->name = "explanation";
+		$field->label = __("Documentation");
+		$field->description = __("description");
+		$field->value = __("value");
+		$field->notes = __("notes");
+		$form->add($field);
+
+		$field = $modules->get("InputfieldText");
+		$field->name = "api_var";
+		$field->label = __("API variable name");
+		$field->description = __("Set custom name of API variable. Leave blank if you don't want one.");
+		$field->value = $data['api_var'];
+		$form->add($field);
+
+		return $form;
+	}
+}
