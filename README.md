@@ -9,9 +9,9 @@ Will create urls like `/url/to/page-name/#1023-page-name` from a given page or g
 
 property hooks for $page:
 
-`Page::anchorId`       returns 1023-page-name
-`Page::anchorHref`     returns #1023-page-name
-`Page::anchorUrlHref`  returns /url/to/page-name/#1023-page-name
+`Page::anchorId`       returns 1023-page-name  
+`Page::anchorHref`     returns #1023-page-name   
+`Page::anchorUrlHref`  returns /url/to/page-name/#1023-page-name  
 
 ### Methods
 
@@ -43,10 +43,7 @@ get all stored items in an array of WireData objects
 `::___renderAnchorTags(string $template)`
 
 render all items as Markup. Provide a string with {\_href\_} and {\_content\_} as template.
-Default: `<a href="{_href_}">{_content_}\</a>
-
-
-### Todo
+Default: `<a href="{_href_}">{_content_}\</a>`
 
 
 ### Changelog
